@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>MP3 Splitter – 1-Second Chunks</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  
+  <!-- FFmpeg.wasm -->
+  <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.6/dist/ffmpeg.min.js"></script>
+  <!-- JSZip -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 2rem;
+      max-width: 600px;
+      margin: auto;
+    }
+    input, button {
+      font-size: 1rem;
+      margin-top: 1rem;
+    }
+    #status {
+      margin-top: 1rem;
+      font-style: italic;
+    }
+    #downloadLink {
+      margin-top: 1rem;
+      display: none;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>MP3 Splitter – 1-Second Chunks</h2>
+  <input type="file" id="fileInput" accept=".mp3" />
+  <button onclick="splitAudio()">Split Audio</button>
+
+  <p id="status">Status: Waiting for file...</p>
+  <a id="downloadLink" download="chunks.zip">Download ZIP</a>
+
+  <script>
+    const { createFFmpeg, fetchFile } = FFmpeg;
+    const ffmpeg = createFFmpeg({ log: true });
+    let isFFmpegLoaded = false;
+
+    async function splitAudio() {
+      const fileInput = document.getElementById('fileInput');
+      const status = document.getElementById('status');
+      const downloadLink = document.getElementById('downloadLink');
+
+      if (!fileInput.files.length) {
+        alert('Please select an MP3 file.');
+        return;
+      }
+
+      if (!isFFmpegLoaded) {
+        status.textContent = 'Loading FFmpeg (may take a while)...';
+        try {
+          await ffmpeg.load();
+          isFFmpegLoaded = true;
+        } catch (e) {
+          status.textContent = '❌ Failed to load FFmpeg.';
+          console.error(e);
+          return;
+        }
+      }
+
+      const file = fileInput.files[0];
+      status.textContent = 'Uploading MP3...';
+
+      try {
+        ffmpeg.FS('writeFile', 'input.mp3', await fetchFile(file));
+      } catch (e) {
+        status.textContent = '❌ Failed to write input file.';
+        console.error(e);
+        return;
+      }
+
+      status.textContent = 'Splitting into 1-second chunks...';
+
+      try {
+        // Use -f segment with mp3 output chunks named outXXX.mp3
+        await ffmpeg.run(
+          '-i', 'input.mp3',
+          '-f', 'segment',
+          '-segment_time', '1',
+          '-c', 'copy',
+          'out%03d.mp3'
+        );
+      } catch (e) {
+        status.textContent = '❌ FFmpeg split failed.';
+        console.error(e);
+        return;
+      }
+
+      const outputFiles = ffmpeg.FS('readdir', '/').filter(f => /^out\d+\.mp3$/.test(f));
+
+      if (!outputFiles.length) {
+        status.textContent = '❌ No output chunks created.';
+        return;
+      }
+
+      status.textContent = `Creating ZIP with ${outputFiles.length} chunks...`;
+      const zip = new JSZip();
+
+      for (const name of outputFiles) {
+        const data = ffmpeg.FS('readFile', name);
+        zip.file(name, data);
+      }
+
+      try {
+        const blob = await zip.generateAsync({ type: 'blob' });
+        const url = URL.createObjectURL(blob);
+        downloadLink.href = url;
+        downloadLink.style.display = 'inline-block';
+        status.textContent = '✅ Done! Download your ZIP below:';
+      } catch (e) {
+        status.textContent = '❌ Failed to create ZIP.';
+        console.error(e);
+      }
+    }
+  </script>
+
+</body>
+</html>
