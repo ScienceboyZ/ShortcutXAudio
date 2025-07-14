@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>M4A Splitter</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.6/dist/ffmpeg.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+</head>
+<body>
+  <h2>M4A Splitter - 1 Second Chunks</h2>
+
+  <input type="file" id="fileInput" accept=".m4a" /><br><br>
+  <button onclick="processAudio()">Split Audio</button><br><br>
+
+  <div id="status">Status: Waiting for file...</div><br>
+  <a id="downloadLink" style="display:none;" download="chunks.zip">Download ZIP</a>
+
+  <script>
+    const { createFFmpeg, fetchFile } = FFmpeg;
+    const ffmpeg = createFFmpeg({ log: true });
+
+    async function processAudio() {
+      const fileInput = document.getElementById('fileInput');
+      const status = document.getElementById('status');
+      const downloadLink = document.getElementById('downloadLink');
+
+      if (!fileInput.files.length) {
+        alert("Please select a .m4a file first.");
+        return;
+      }
+
+      const file = fileInput.files[0];
+      status.textContent = 'Status: Loading FFmpeg...';
+
+      if (!ffmpeg.isLoaded()) {
+        await ffmpeg.load();
+      }
+
+      status.textContent = 'Status: Uploading file to FFmpeg...';
+
+      const arrayBuffer = await file.arrayBuffer();
+      const uint8Array = new Uint8Array(arrayBuffer);
+      ffmpeg.FS('writeFile', 'input.m4a', uint8Array);
+
+      status.textContent = 'Status: Splitting audio... (This may take a while)';
+
+      await ffmpeg.run(
+        '-i', 'input.m4a',
+        '-f', 'segment',
+        '-segment_time', '1',
+        '-c', 'copy',
+        'out%03d.m4a'
+      );
+
+      const files = ffmpeg.FS('readdir', '/').filter(name => name.match(/^out\d+\.m4a$/));
+      const zip = new JSZip();
+
+      for (let fileName of files) {
+        const data = ffmpeg.FS('readFile', fileName);
+        zip.file(fileName, data);
+      }
+
+      status.textContent = 'Status: Zipping chunks...';
+
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const zipURL = URL.createObjectURL(zipBlob);
+
+      downloadLink.href = zipURL;
+      downloadLink.style.display = 'inline-block';
+      downloadLink.textContent = 'Download ZIP';
+      status.textContent = '✅ Done! Click to download:';
+    }
+  </script>
+</body>
+</html>
